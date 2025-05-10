@@ -9,8 +9,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from tcl.api import TCLAPI
-from tcl.const import DEFAULT_SCAN_INTERVAL
+from custom_components.tcl.api import TCLAPI
+from custom_components.tcl.const import DEFAULT_SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
