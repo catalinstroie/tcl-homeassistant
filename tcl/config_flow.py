@@ -12,8 +12,8 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .api import TCLAPI, APIAuthError, APIConnectionError
-from .const import DOMAIN
+from tcl.api import TCLAPI, APIAuthError, APIConnectionError
+from tcl.const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 

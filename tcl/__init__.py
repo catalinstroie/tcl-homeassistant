@@ -9,8 +9,8 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN
-from .coordinator import TCLCoordinator
+from tcl.const import DOMAIN
+from tcl.coordinator import TCLCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 

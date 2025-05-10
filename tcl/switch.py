@@ -9,8 +9,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-from .coordinator import TCLCoordinator
+from tcl.const import DOMAIN
+from tcl.coordinator import TCLCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
