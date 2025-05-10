@@ -11,19 +11,17 @@ Control your TCL IoT devices through Home Assistant.
 
 ## Installation
 
-### Method 1: Manual Installation
-1. Copy the `custom_components/tcl` directory to your Home Assistant `config/custom_components` directory
-2. Restart Home Assistant
-3. Add integration via Configuration -> Integrations
+### Method 1: HACS Installation (Recommended)
+1. Add this repository to HACS: https://github.com/catalinstroie/tcl-homeassistant
+2. Install through HACS interface
+3. Restart Home Assistant
+4. Configure via Configuration -> Integrations
 
-### Method 2: GitHub Installation
-Add to your `configuration.yaml`:
-```yaml
-custom_components:
-  tcl:
-    source: https://github.com/catalinstroie/tcl-homeassistant
-```
-Then restart Home Assistant.
+### Method 2: Manual Installation
+1. Download the latest release
+2. Copy contents to your `config/custom_components/tcl` directory
+3. Restart Home Assistant
+4. Add integration via Configuration -> Integrations
 
 ## Configuration
 1. Go to Configuration -> Integrations
