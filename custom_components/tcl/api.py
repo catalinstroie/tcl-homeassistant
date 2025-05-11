@@ -92,11 +92,11 @@ class TCLAPI:
             sign_str = f"{timestamp}{nonce}{self._access_token}"
             sign = hashlib.md5(sign_str.encode()).hexdigest()
 
-            _LOGGER.debug("Making devices request with headers: %s", {
+            full_headers = {
                 "platform": "android",
                 "appversion": "5.4.1",
                 "thomeversion": "4.8.1",
-                "accesstoken": "***REDACTED***",
+                "accesstoken": self._access_token,
                 "countrycode": "RO",
                 "accept-language": "en",
                 "timestamp": timestamp,
@@ -105,7 +105,12 @@ class TCLAPI:
                 "user-agent": "Android",
                 "content-type": "application/json; charset=UTF-8",
                 "accept-encoding": "gzip, deflate, br"
-            })
+            }
+            _LOGGER.debug("Full request details:\nURL: %s\nHeaders: %s\nSignature Input: %s",
+                "https://prod-eu.aws.tcljd.com/v3/user/get_things",
+                full_headers,
+                f"timestamp={timestamp}&nonce={nonce}&token={self._access_token}"
+            )
             response = self._session.get(
                 "https://prod-eu.aws.tcljd.com/v3/user/get_things",
                 headers={
@@ -123,8 +128,20 @@ class TCLAPI:
                     "accept-encoding": "gzip, deflate, br"
                 }
             )
-            response.raise_for_status()
-            return response.json().get("data", [])
+            try:
+                response.raise_for_status()
+                _LOGGER.debug("Successful response:\nHeaders: %s\nBody: %s",
+                    response.headers,
+                    response.text
+                )
+                return response.json().get("data", [])
+            except requests.exceptions.HTTPError as err:
+                _LOGGER.error("Request failed with status %s\nResponse headers: %s\nResponse body: %s",
+                    err.response.status_code,
+                    err.response.headers,
+                    err.response.text
+                )
+                raise
         except requests.exceptions.RequestException as err:
             _LOGGER.error("Failed to get devices: %s", err)
             raise APIConnectionError from err
