@@ -5,6 +5,6 @@
   "homeassistant": "2023.1.0",
   "zip_release": true,
   "filename": "tcl.zip",
-  "content_in_root": true,
-  "persistent_directory": false
+  "content_in_root": false,
+  "persistent_directory": "tcl"
 }
