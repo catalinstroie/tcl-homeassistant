@@ -2,6 +2,7 @@
   "name": "TCL IoT Integration",
   "render_readme": true,
   "domains": ["tcl"],
-  "homeassistant": "2023.1.0",
-  "hide_default_branch": true
+  "homeassistant": "2023.8.0",
+  "hide_default_branch": true,
+  "version": "1.0.11"
 }

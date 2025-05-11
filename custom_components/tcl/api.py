@@ -1,10 +1,9 @@
 """API for TCL IoT devices."""
 
 import logging
+import hashlib
 from typing import Any
-
 import requests
-from requests_aws4auth import AWS4Auth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,50 +19,104 @@ class TCLAPI:
     def __init__(self, username: str, password: str) -> None:
         """Initialize API client."""
         self._username = username
-        self._password = password
+        self._password = hashlib.md5(password.encode()).hexdigest()
         self._session = requests.Session()
-        self._auth_token = None
+        self._access_token = None
+        self._refresh_token = None
+        self._aws_credentials = None
 
     def authenticate(self) -> bool:
         """Authenticate with TCL cloud."""
         try:
+            headers = {
+                "th_platform": "android",
+                "th_version": "4.8.1",
+                "th_appbulid": "830",
+                "user-agent": "Android",
+                "content-type": "application/json; charset=UTF-8"
+            }
+            
+            # First authentication step
             response = self._session.post(
-                "https://api.tcl.com/auth/login",
-                json={"username": self._username, "password": self._password}
+                "https://pa.account.tcl.com/account/login?clientId=54148614",
+                headers=headers,
+                json={
+                    "equipment": 2,
+                    "password": self._password,
+                    "osType": 1,
+                    "username": self._username,
+                    "clientVersion": "4.8.1",
+                    "osVersion": "6.0",
+                    "deviceModel": "Android",
+                    "captchaRule": 2,
+                    "channel": "app"
+                }
             )
             response.raise_for_status()
-            self._auth_token = response.json().get("token")
+            auth_data = response.json()
+            
+            # Second step - refresh tokens
+            refresh_response = self._session.post(
+                "https://prod-eu.aws.tcljd.com/v3/auth/refresh_tokens",
+                headers={
+                    "user-agent": "Android",
+                    "content-type": "application/json; charset=UTF-8"
+                },
+                json={
+                    "userId": auth_data["user"]["username"],
+                    "ssoToken": auth_data["token"],
+                    "appId": "wx6e1af3fa84fbe523"
+                }
+            )
+            refresh_response.raise_for_status()
+            
+            self._access_token = refresh_response.json()["data"]["saasToken"]
             return True
+            
         except requests.exceptions.RequestException as err:
             _LOGGER.error("Authentication failed: %s", err)
             raise APIAuthError from err
 
     def get_devices(self) -> list[dict[str, Any]]:
         """Get list of registered devices."""
-        if not self._auth_token:
+        if not self._access_token:
             self.authenticate()
 
         try:
             response = self._session.get(
-                "https://api.tcl.com/api/devices",
-                headers={"Authorization": f"Bearer {self._auth_token}"}
+                "https://prod-eu.aws.tcljd.com/v3/user/get_things",
+                headers={
+                    "platform": "android",
+                    "appversion": "5.4.1",
+                    "thomeversion": "4.8.1",
+                    "accesstoken": self._access_token,
+                    "countrycode": "RO",
+                    "accept-language": "en"
+                }
             )
             response.raise_for_status()
-            return response.json().get("devices", [])
+            return response.json().get("data", [])
         except requests.exceptions.RequestException as err:
             _LOGGER.error("Failed to get devices: %s", err)
             raise APIConnectionError from err
 
-    def control_device(self, device_id: str, command: str) -> bool:
+    def control_device(self, device_id: str, command: dict) -> bool:
         """Send control command to device."""
-        if not self._auth_token:
+        if not self._access_token:
             self.authenticate()
 
         try:
             response = self._session.post(
-                f"https://api.tcl.com/api/control/{device_id}",
-                json={"command": command},
-                headers={"Authorization": f"Bearer {self._auth_token}"}
+                f"https://a2qjkbbsk6qn2u-ats.iot.eu-central-1.amazonaws.com/topics/%24aws/things/{device_id}/shadow/update?qos=0",
+                headers={
+                    "Content-Type": "application/x-amz-json-1.0",
+                    "X-Amz-Security-Token": self._aws_credentials["SessionToken"]
+                },
+                json={
+                    "state": {
+                        "desired": command
+                    }
+                }
             )
             response.raise_for_status()
             return True

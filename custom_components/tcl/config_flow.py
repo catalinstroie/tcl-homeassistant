@@ -31,8 +31,15 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         await hass.async_add_executor_job(api.authenticate)
         return {"title": f"TCL IoT ({data[CONF_USERNAME]})"}
     except APIAuthError as err:
+        _LOGGER.error("Authentication failed: %s", err)
+        if "404" in str(err):
+            raise InvalidEndpoint from err
         raise InvalidAuth from err
     except APIConnectionError as err:
+        _LOGGER.error("Connection error: %s", err)
+        raise CannotConnect from err
+    except Exception as err:
+        _LOGGER.error("Unexpected error: %s", err)
         raise CannotConnect from err
 
 class TCLConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -71,3 +78,6 @@ class CannotConnect(HomeAssistantError):
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
+
+class InvalidEndpoint(HomeAssistantError):
+    """Error to indicate the API endpoint is invalid."""
