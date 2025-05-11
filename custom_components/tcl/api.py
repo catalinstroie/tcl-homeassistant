@@ -203,12 +203,10 @@ class TCLAPI:
                     headers=headers
                 )
                 _LOGGER.debug("Raw response headers: %s", dict(response.headers))
-
-            _LOGGER.debug("Response status: %s, headers: %s",
-                response.status_code,
-                dict(response.headers)
-            )
-            try:
+                _LOGGER.debug("Response status: %s, headers: %s",
+                    response.status_code,
+                    dict(response.headers)
+                )
                 response.raise_for_status()
                 _LOGGER.debug("Successful response:\nHeaders: %s\nBody: %s",
                     response.headers,
