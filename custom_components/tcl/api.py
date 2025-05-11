@@ -97,23 +97,16 @@ class TCLAPI:
             self.authenticate()
 
         try:
-            if not self._aws_credentials:
-                _LOGGER.error("AWS credentials not available - cannot authenticate with AWS API")
-                raise APIConnectionError("Missing AWS credentials")
+            # Try original auth method first
+            import time
+            import random
+            import hashlib
+            
+            timestamp = str(int(time.time() * 1000))
+            nonce = hashlib.md5(str(random.random()).encode()).hexdigest()
+            sign_str = f"{timestamp}{nonce}{self._access_token}"
+            sign = hashlib.md5(sign_str.encode()).hexdigest()
 
-            from requests_aws4auth import AWS4Auth
-            import datetime
-
-            # Prepare AWS SigV4 authentication
-            aws_auth = AWS4Auth(
-                self._aws_credentials["accessKeyId"],
-                self._aws_credentials["secretAccessKey"],
-                'eu-central-1',
-                'execute-api',
-                session_token=self._aws_credentials["sessionToken"]
-            )
-
-            # Prepare standard headers
             headers = {
                 "platform": "android",
                 "appversion": "5.4.1",
@@ -121,15 +114,25 @@ class TCLAPI:
                 "accesstoken": self._access_token,
                 "countrycode": "RO",
                 "accept-language": "en",
+                "timestamp": timestamp,
+                "nonce": nonce,
+                "sign": sign,
                 "user-agent": "Android",
                 "content-type": "application/json; charset=UTF-8"
             }
 
-            _LOGGER.debug("Making AWS authenticated request to devices endpoint")
+            _LOGGER.debug("Making request to devices endpoint with headers: %s", {
+                k: v for k, v in headers.items() if k not in ['accesstoken', 'sign']
+            })
+            
             response = self._session.get(
                 "https://prod-eu.aws.tcljd.com/v3/user/get_things",
-                auth=aws_auth,
                 headers=headers
+            )
+
+            _LOGGER.debug("Response status: %s, headers: %s",
+                response.status_code,
+                dict(response.headers)
             )
             try:
                 response.raise_for_status()
@@ -144,6 +147,16 @@ class TCLAPI:
                     err.response.headers,
                     err.response.text
                 )
+                # If 403, try with original headers but different timestamp format
+                if err.response.status_code == 403:
+                    _LOGGER.debug("Attempting fallback authentication method")
+                    headers["timestamp"] = str(int(time.time()))
+                    response = self._session.get(
+                        "https://prod-eu.aws.tcljd.com/v3/user/get_things",
+                        headers=headers
+                    )
+                    response.raise_for_status()
+                    return response.json().get("data", [])
                 raise
         except requests.exceptions.RequestException as err:
             _LOGGER.error("Failed to get devices: %s", err)
