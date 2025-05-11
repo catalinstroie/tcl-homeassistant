@@ -178,23 +178,21 @@ class TCLAPI:
             })
 
             headers = {
-                "Platform": "android",
-                "AppVersion": "5.4.1",
-                "THomeVersion": "4.8.1",
-                "Authorization": f"Bearer {self._access_token}",
-                "AccessToken": self._access_token,
-                "CountryCode": "RO",
-                "Accept-Language": "en",
-                "Timestamp": timestamp,
-                "Nonce": nonce,
-                "Sign": sign,
-                "User-Agent": "Android",
-                "Content-Type": "application/json; charset=UTF-8",
-                "Accept-Encoding": "gzip, deflate, br",
-                "X-Amz-Security-Token": self._aws_credentials["SessionToken"],
-                "X-Amz-Date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
-                "X-Amz-Content-Sha256": hashlib.sha256(b"").hexdigest(),
-                "X-Requested-With": "XMLHttpRequest"
+                "platform": "android",
+                "appversion": "5.4.1",
+                "thomeversion": "4.8.1",
+                "accesstoken": self._access_token,
+                "countrycode": "RO",
+                "accept-language": "en",
+                "timestamp": timestamp,
+                "nonce": nonce,
+                "sign": sign,
+                "user-agent": "Android",
+                "content-type": "application/json; charset=UTF-8",
+                "accept-encoding": "gzip, deflate, br",
+                "x-amz-security-token": self._aws_credentials["SessionToken"],
+                "x-amz-date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
+                "x-amz-content-sha256": hashlib.sha256(b"").hexdigest()
             }
 
             # Log full request details including masked credentials
