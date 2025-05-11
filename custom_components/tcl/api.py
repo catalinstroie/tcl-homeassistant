@@ -182,17 +182,27 @@ class TCLAPI:
                 "x-amz-content-sha256": hashlib.sha256(b"").hexdigest()
             }
 
-            _LOGGER.debug("Making request to devices endpoint with full headers: %s", headers)
-            _LOGGER.debug("Using access token: %s", self._access_token)
-            _LOGGER.debug("Request details:\nURL: %s\nMethod: GET\nHeaders: %s",
+            # Log full request details including masked credentials
+            _LOGGER.debug("Full request details:\nURL: %s\nMethod: GET\nHeaders: %s\nAWS Credentials: %s",
                 "https://prod-eu.aws.tcljd.com/v3/user/get_things",
-                headers
+                {
+                    k: (v[:4] + '...' if 'token' in k.lower() or 'secret' in k.lower() else v)
+                    for k, v in headers.items()
+                },
+                {
+                    "AccessKeyId": self._aws_credentials["AccessKeyId"][:4] + "...",
+                    "SessionToken": self._aws_credentials["SessionToken"][:4] + "...",
+                    "Expiration": self._aws_credentials["Expiration"],
+                    "Valid": self._parse_expiration(self._aws_credentials["Expiration"]) > datetime.datetime.utcnow()
+                }
             )
             
-            response = self._session.get(
-                "https://prod-eu.aws.tcljd.com/v3/user/get_things",
-                headers=headers
-            )
+            try:
+                response = self._session.get(
+                    "https://prod-eu.aws.tcljd.com/v3/user/get_things",
+                    headers=headers
+                )
+                _LOGGER.debug("Raw response headers: %s", dict(response.headers))
 
             _LOGGER.debug("Response status: %s, headers: %s",
                 response.status_code,
