@@ -112,11 +112,23 @@ class TCLAPI:
             _LOGGER.error("Authentication failed: %s", err)
             raise APIAuthError from err
 
-    def get_devices(self) -> list[dict[str, Any]]:
-        """Get list of registered devices."""
+    def _validate_credentials(self) -> None:
+        """Validate and refresh credentials if needed."""
         if not self._access_token:
             self.authenticate()
+            return
+            
+        if self._aws_credentials and datetime.datetime.strptime(
+            self._aws_credentials["Expiration"], "%Y-%m-%dT%H:%M:%SZ"
+        ) < datetime.datetime.utcnow():
+            _LOGGER.debug("AWS credentials expired at %s, refreshing...",
+                         self._aws_credentials["Expiration"])
+            self.authenticate()
 
+    def get_devices(self) -> list[dict[str, Any]]:
+        """Get list of registered devices."""
+        self._validate_credentials()
+        
         try:
             import time
             import random
@@ -126,6 +138,15 @@ class TCLAPI:
             nonce = hashlib.md5(str(random.random()).encode()).hexdigest()
             sign_str = f"{timestamp}{nonce}{self._access_token}"
             sign = hashlib.md5(sign_str.encode()).hexdigest()
+            
+            _LOGGER.debug("Current AWS credentials state: %s", {
+                "accessKeyId": self._aws_credentials["AccessKeyId"][:4] + "...",
+                "expiration": self._aws_credentials["Expiration"],
+                "valid": datetime.datetime.strptime(
+                    self._aws_credentials["Expiration"], 
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ) > datetime.datetime.utcnow()
+            })
 
             headers = {
                 "platform": "android",
@@ -141,7 +162,8 @@ class TCLAPI:
                 "content-type": "application/json; charset=UTF-8",
                 "accept-encoding": "gzip, deflate, br",
                 "x-amz-security-token": self._aws_credentials["SessionToken"],
-                "x-amz-date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+                "x-amz-date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
+                "x-amz-content-sha256": hashlib.sha256(b"").hexdigest()
             }
 
             _LOGGER.debug("Making request to devices endpoint with full headers: %s", headers)
