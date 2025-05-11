@@ -47,7 +47,7 @@ class TCLAPI:
                     "username": self._username,
                     "clientVersion": "4.8.1",
                     "osVersion": "6.0",
-                    "deviceModel": "Android",
+                    "deviceModel": "AndroidAndroid SDK built for x86",
                     "captchaRule": 2,
                     "channel": "app"
                 }
@@ -60,7 +60,8 @@ class TCLAPI:
                 "https://prod-eu.aws.tcljd.com/v3/auth/refresh_tokens",
                 headers={
                     "user-agent": "Android",
-                    "content-type": "application/json; charset=UTF-8"
+                    "content-type": "application/json; charset=UTF-8",
+                    "accept-encoding": "gzip, deflate, br"
                 },
                 json={
                     "userId": auth_data["user"]["username"],
@@ -75,15 +76,30 @@ class TCLAPI:
             
             self._access_token = refresh_data["data"]["saasToken"]
             
-            # Check for AWS credentials in response
-            if "awsCredentials" in refresh_data["data"]:
-                self._aws_credentials = refresh_data["data"]["awsCredentials"]
-                _LOGGER.debug("Received AWS credentials: %s", {
-                    "accessKeyId": self._aws_credentials["accessKeyId"][:4] + "...",
-                    "expiration": self._aws_credentials["expiration"]
-                })
-            else:
-                _LOGGER.warning("No AWS credentials found in refresh response")
+            # Get AWS credentials from Cognito
+            cognito_response = self._session.post(
+                "https://cognito-identity.eu-central-1.amazonaws.com/",
+                headers={
+                    "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
+                    "Content-Type": "application/x-amz-json-1.1",
+                    "User-Agent": "aws-sdk-iOS/2.26.2 iOS/18.4.1 en_RO",
+                    "X-Amz-Date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+                },
+                json={
+                    "IdentityId": refresh_data["data"]["cognitoId"],
+                    "Logins": {
+                        "cognito-identity.amazonaws.com": refresh_data["data"]["cognitoToken"]
+                    }
+                }
+            )
+            cognito_response.raise_for_status()
+            cognito_data = cognito_response.json()
+            
+            self._aws_credentials = cognito_data["Credentials"]
+            _LOGGER.debug("Received AWS credentials: %s", {
+                "accessKeyId": self._aws_credentials["AccessKeyId"][:4] + "...",
+                "expiration": self._aws_credentials["Expiration"]
+            })
             
             return True
             
@@ -97,7 +113,6 @@ class TCLAPI:
             self.authenticate()
 
         try:
-            # Try original auth method first
             import time
             import random
             import hashlib
@@ -118,7 +133,8 @@ class TCLAPI:
                 "nonce": nonce,
                 "sign": sign,
                 "user-agent": "Android",
-                "content-type": "application/json; charset=UTF-8"
+                "content-type": "application/json; charset=UTF-8",
+                "accept-encoding": "gzip, deflate, br"
             }
 
             _LOGGER.debug("Making request to devices endpoint with headers: %s", {
@@ -172,12 +188,15 @@ class TCLAPI:
                 f"https://a2qjkbbsk6qn2u-ats.iot.eu-central-1.amazonaws.com/topics/%24aws/things/{device_id}/shadow/update?qos=0",
                 headers={
                     "Content-Type": "application/x-amz-json-1.0",
-                    "X-Amz-Security-Token": self._aws_credentials["SessionToken"]
+                    "X-Amz-Security-Token": self._aws_credentials["SessionToken"],
+                    "User-Agent": "aws-sdk-iOS/2.26.2 iOS/18.4.1 en_RO",
+                    "X-Amz-Date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
                 },
                 json={
                     "state": {
                         "desired": command
-                    }
+                    },
+                    "clientToken": f"mobile_{int(time.time() * 1000)}"
                 }
             )
             response.raise_for_status()
