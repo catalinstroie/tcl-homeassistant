@@ -83,6 +83,29 @@ class TCLAPI:
             self.authenticate()
 
         try:
+            import time
+            import random
+            import hashlib
+            
+            timestamp = str(int(time.time() * 1000))
+            nonce = hashlib.md5(str(random.random()).encode()).hexdigest()
+            sign_str = f"{timestamp}{nonce}{self._access_token}"
+            sign = hashlib.md5(sign_str.encode()).hexdigest()
+
+            _LOGGER.debug("Making devices request with headers: %s", {
+                "platform": "android",
+                "appversion": "5.4.1",
+                "thomeversion": "4.8.1",
+                "accesstoken": "***REDACTED***",
+                "countrycode": "RO",
+                "accept-language": "en",
+                "timestamp": timestamp,
+                "nonce": nonce,
+                "sign": sign,
+                "user-agent": "Android",
+                "content-type": "application/json; charset=UTF-8",
+                "accept-encoding": "gzip, deflate, br"
+            })
             response = self._session.get(
                 "https://prod-eu.aws.tcljd.com/v3/user/get_things",
                 headers={
@@ -91,7 +114,13 @@ class TCLAPI:
                     "thomeversion": "4.8.1",
                     "accesstoken": self._access_token,
                     "countrycode": "RO",
-                    "accept-language": "en"
+                    "accept-language": "en",
+                    "timestamp": timestamp,
+                    "nonce": nonce,
+                    "sign": sign,
+                    "user-agent": "Android",
+                    "content-type": "application/json; charset=UTF-8",
+                    "accept-encoding": "gzip, deflate, br"
                 }
             )
             response.raise_for_status()
