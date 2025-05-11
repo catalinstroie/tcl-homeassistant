@@ -70,7 +70,21 @@ class TCLAPI:
             )
             refresh_response.raise_for_status()
             
-            self._access_token = refresh_response.json()["data"]["saasToken"]
+            refresh_data = refresh_response.json()
+            _LOGGER.debug("Full refresh response: %s", refresh_data)
+            
+            self._access_token = refresh_data["data"]["saasToken"]
+            
+            # Check for AWS credentials in response
+            if "awsCredentials" in refresh_data["data"]:
+                self._aws_credentials = refresh_data["data"]["awsCredentials"]
+                _LOGGER.debug("Received AWS credentials: %s", {
+                    "accessKeyId": self._aws_credentials["accessKeyId"][:4] + "...",
+                    "expiration": self._aws_credentials["expiration"]
+                })
+            else:
+                _LOGGER.warning("No AWS credentials found in refresh response")
+            
             return True
             
         except requests.exceptions.RequestException as err:
@@ -83,50 +97,39 @@ class TCLAPI:
             self.authenticate()
 
         try:
-            import time
-            import random
-            import hashlib
-            
-            timestamp = str(int(time.time() * 1000))
-            nonce = hashlib.md5(str(random.random()).encode()).hexdigest()
-            sign_str = f"{timestamp}{nonce}{self._access_token}"
-            sign = hashlib.md5(sign_str.encode()).hexdigest()
+            if not self._aws_credentials:
+                _LOGGER.error("AWS credentials not available - cannot authenticate with AWS API")
+                raise APIConnectionError("Missing AWS credentials")
 
-            full_headers = {
+            from requests_aws4auth import AWS4Auth
+            import datetime
+
+            # Prepare AWS SigV4 authentication
+            aws_auth = AWS4Auth(
+                self._aws_credentials["accessKeyId"],
+                self._aws_credentials["secretAccessKey"],
+                'eu-central-1',
+                'execute-api',
+                session_token=self._aws_credentials["sessionToken"]
+            )
+
+            # Prepare standard headers
+            headers = {
                 "platform": "android",
                 "appversion": "5.4.1",
                 "thomeversion": "4.8.1",
                 "accesstoken": self._access_token,
                 "countrycode": "RO",
                 "accept-language": "en",
-                "timestamp": timestamp,
-                "nonce": nonce,
-                "sign": sign,
                 "user-agent": "Android",
-                "content-type": "application/json; charset=UTF-8",
-                "accept-encoding": "gzip, deflate, br"
+                "content-type": "application/json; charset=UTF-8"
             }
-            _LOGGER.debug("Full request details:\nURL: %s\nHeaders: %s\nSignature Input: %s",
-                "https://prod-eu.aws.tcljd.com/v3/user/get_things",
-                full_headers,
-                f"timestamp={timestamp}&nonce={nonce}&token={self._access_token}"
-            )
+
+            _LOGGER.debug("Making AWS authenticated request to devices endpoint")
             response = self._session.get(
                 "https://prod-eu.aws.tcljd.com/v3/user/get_things",
-                headers={
-                    "platform": "android",
-                    "appversion": "5.4.1",
-                    "thomeversion": "4.8.1",
-                    "accesstoken": self._access_token,
-                    "countrycode": "RO",
-                    "accept-language": "en",
-                    "timestamp": timestamp,
-                    "nonce": nonce,
-                    "sign": sign,
-                    "user-agent": "Android",
-                    "content-type": "application/json; charset=UTF-8",
-                    "accept-encoding": "gzip, deflate, br"
-                }
+                auth=aws_auth,
+                headers=headers
             )
             try:
                 response.raise_for_status()
