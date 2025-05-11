@@ -25,7 +25,7 @@ async def async_setup_entry(
     switches = [
         TCLSwitch(coordinator, device["id"], device["name"])
         for device in coordinator.devices
-        if device.get("type") == "AC"  # Only create switches for AC devices
+        if device.get("category") == "AC"  # Match the API response field name
     ]
     
     async_add_entities(switches)
@@ -49,14 +49,22 @@ class TCLSwitch(CoordinatorEntity, SwitchEntity):
             (d for d in self.coordinator.devices if d["id"] == self._device_id),
             None
         )
-        return device.get("power_state") == "on" if device else None
+        if not device:
+            return None
+        # Check power state from identifiers array
+        power_switch = next(
+            (i for i in device.get("identifiers", []) 
+             if i.get("identifier") == "powerSwitch"),
+            None
+        )
+        return power_switch.get("value") == "1" if power_switch else None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the device on."""
         await self.hass.async_add_executor_job(
             self.coordinator.api.control_device,
             self._device_id,
-            "power_on"
+            {"powerSwitch": "1"}  # Use correct API command format
         )
         await self.coordinator.async_refresh()
 
@@ -65,6 +73,6 @@ class TCLSwitch(CoordinatorEntity, SwitchEntity):
         await self.hass.async_add_executor_job(
             self.coordinator.api.control_device,
             self._device_id,
-            "power_off"
+            {"powerSwitch": "0"}  # Use correct API command format
         )
         await self.coordinator.async_refresh()
