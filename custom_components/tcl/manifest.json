@@ -7,7 +7,7 @@
   "documentation": "https://github.com/catalinstroie/tcl-homeassistant",
   "iot_class": "cloud_polling",
   "requirements": ["requests", "requests_aws4auth"],
-  "version": "1.0.11",
+  "version": "1.0.13",
   "issue_tracker": "https://github.com/catalinstroie/tcl-homeassistant/issues",
-  "hacs": "1.0.11"
+  "hacs": "1.0.13"
 }

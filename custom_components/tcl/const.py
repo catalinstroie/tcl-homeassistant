@@ -1,4 +1,5 @@
 """Constants for TCL IoT integration."""
+from datetime import timedelta
 
 DOMAIN = "tcl"
 
@@ -13,8 +14,8 @@ DEVICES_ENDPOINT = "/api/devices"
 CONTROL_ENDPOINT = "/api/control"
 
 # Defaults
-DEFAULT_SCAN_INTERVAL = 60
-MIN_SCAN_INTERVAL = 30
+DEFAULT_SCAN_INTERVAL = timedelta(seconds=60)
+MIN_SCAN_INTERVAL = timedelta(seconds=30)
 
 # Services
 SERVICE_POWER_OFF = "power_off"
