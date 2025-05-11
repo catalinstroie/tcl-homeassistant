@@ -21,6 +21,8 @@ class TCLAPI:
         """Initialize API client."""
         self._username = username
         self._password = hashlib.md5(password.encode()).hexdigest()
+        _LOGGER.debug("Initialized API client for username: %s", username)
+        _LOGGER.debug("Password MD5: %s", self._password)
         self._session = requests.Session()
         self._access_token = None
         self._refresh_token = None
@@ -34,7 +36,9 @@ class TCLAPI:
                 "th_version": "4.8.1",
                 "th_appbulid": "830",
                 "user-agent": "Android",
-                "content-type": "application/json; charset=UTF-8"
+                "content-type": "application/json; charset=UTF-8",
+                "accept-encoding": "gzip, deflate, br",
+                "connection": "keep-alive"
             }
             
             # First authentication step
@@ -138,9 +142,12 @@ class TCLAPI:
                 "accept-encoding": "gzip, deflate, br"
             }
 
-            _LOGGER.debug("Making request to devices endpoint with headers: %s", {
-                k: v for k, v in headers.items() if k not in ['accesstoken', 'sign']
-            })
+            _LOGGER.debug("Making request to devices endpoint with full headers: %s", headers)
+            _LOGGER.debug("Using access token: %s", self._access_token)
+            _LOGGER.debug("Request details:\nURL: %s\nMethod: GET\nHeaders: %s",
+                "https://prod-eu.aws.tcljd.com/v3/user/get_things",
+                headers
+            )
             
             response = self._session.get(
                 "https://prod-eu.aws.tcljd.com/v3/user/get_things",
