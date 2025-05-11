@@ -112,18 +112,34 @@ class TCLAPI:
             _LOGGER.error("Authentication failed: %s", err)
             raise APIAuthError from err
 
+    def _parse_expiration(self, expiration) -> datetime.datetime:
+        """Parse AWS credential expiration timestamp."""
+        try:
+            if isinstance(expiration, str):
+                return datetime.datetime.strptime(expiration, "%Y-%m-%dT%H:%M:%SZ")
+            elif isinstance(expiration, (int, float)):
+                return datetime.datetime.fromtimestamp(expiration)
+            else:
+                _LOGGER.warning("Unknown expiration format: %s (type: %s)", 
+                               expiration, type(expiration))
+                return datetime.datetime.min
+        except Exception as err:
+            _LOGGER.error("Failed to parse expiration: %s", err)
+            return datetime.datetime.min
+
     def _validate_credentials(self) -> None:
         """Validate and refresh credentials if needed."""
         if not self._access_token:
             self.authenticate()
             return
             
-        if self._aws_credentials and datetime.datetime.strptime(
-            self._aws_credentials["Expiration"], "%Y-%m-%dT%H:%M:%SZ"
-        ) < datetime.datetime.utcnow():
-            _LOGGER.debug("AWS credentials expired at %s, refreshing...",
-                         self._aws_credentials["Expiration"])
-            self.authenticate()
+        if self._aws_credentials:
+            expiration = self._parse_expiration(self._aws_credentials["Expiration"])
+            if expiration < datetime.datetime.utcnow():
+                _LOGGER.debug("AWS credentials expired at %s (raw: %s), refreshing...",
+                            expiration,
+                            self._aws_credentials["Expiration"])
+                self.authenticate()
 
     def get_devices(self) -> list[dict[str, Any]]:
         """Get list of registered devices."""
@@ -139,13 +155,13 @@ class TCLAPI:
             sign_str = f"{timestamp}{nonce}{self._access_token}"
             sign = hashlib.md5(sign_str.encode()).hexdigest()
             
+            expiration = self._parse_expiration(self._aws_credentials["Expiration"])
             _LOGGER.debug("Current AWS credentials state: %s", {
                 "accessKeyId": self._aws_credentials["AccessKeyId"][:4] + "...",
-                "expiration": self._aws_credentials["Expiration"],
-                "valid": datetime.datetime.strptime(
-                    self._aws_credentials["Expiration"], 
-                    "%Y-%m-%dT%H:%M:%SZ"
-                ) > datetime.datetime.utcnow()
+                "expirationRaw": self._aws_credentials["Expiration"],
+                "expirationType": type(self._aws_credentials["Expiration"]).__name__,
+                "expirationParsed": expiration.isoformat(),
+                "valid": expiration > datetime.datetime.utcnow()
             })
 
             headers = {
