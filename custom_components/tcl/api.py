@@ -135,17 +135,30 @@ class TCLAPI:
             
         if self._aws_credentials:
             expiration = self._parse_expiration(self._aws_credentials["Expiration"])
-            if expiration < datetime.datetime.utcnow():
-                _LOGGER.debug("AWS credentials expired at %s (raw: %s), refreshing...",
+            # Refresh 5 minutes before expiration
+            buffer = datetime.timedelta(minutes=5)
+            if expiration - buffer < datetime.datetime.utcnow():
+                _LOGGER.debug("Refreshing credentials (expires at %s, buffer: %s)...",
                             expiration,
-                            self._aws_credentials["Expiration"])
-                self.authenticate()
+                            buffer)
+                try:
+                    self.authenticate()
+                except Exception as err:
+                    _LOGGER.error("Failed to refresh credentials: %s", err)
+                    raise
 
     def get_devices(self) -> list[dict[str, Any]]:
         """Get list of registered devices."""
-        self._validate_credentials()
-        
         try:
+            self._validate_credentials()
+            
+            # Debug log current credentials state
+            if self._aws_credentials:
+                _LOGGER.debug("Current AWS credentials: %s", {
+                    "accessKeyId": self._aws_credentials["AccessKeyId"][:4] + "...",
+                    "expiration": self._aws_credentials["Expiration"],
+                    "sessionToken": bool(self._aws_credentials["SessionToken"])
+                })
             import time
             import random
             import hashlib
@@ -165,21 +178,23 @@ class TCLAPI:
             })
 
             headers = {
-                "platform": "android",
-                "appversion": "5.4.1",
-                "thomeversion": "4.8.1",
-                "accesstoken": self._access_token,
-                "countrycode": "RO",
-                "accept-language": "en",
-                "timestamp": timestamp,
-                "nonce": nonce,
-                "sign": sign,
-                "user-agent": "Android",
-                "content-type": "application/json; charset=UTF-8",
-                "accept-encoding": "gzip, deflate, br",
-                "x-amz-security-token": self._aws_credentials["SessionToken"],
-                "x-amz-date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
-                "x-amz-content-sha256": hashlib.sha256(b"").hexdigest()
+                "Platform": "android",
+                "AppVersion": "5.4.1",
+                "THomeVersion": "4.8.1",
+                "Authorization": f"Bearer {self._access_token}",
+                "AccessToken": self._access_token,
+                "CountryCode": "RO",
+                "Accept-Language": "en",
+                "Timestamp": timestamp,
+                "Nonce": nonce,
+                "Sign": sign,
+                "User-Agent": "Android",
+                "Content-Type": "application/json; charset=UTF-8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "X-Amz-Security-Token": self._aws_credentials["SessionToken"],
+                "X-Amz-Date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
+                "X-Amz-Content-Sha256": hashlib.sha256(b"").hexdigest(),
+                "X-Requested-With": "XMLHttpRequest"
             }
 
             # Log full request details including masked credentials
