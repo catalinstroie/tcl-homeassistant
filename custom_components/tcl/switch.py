@@ -22,11 +22,21 @@ async def async_setup_entry(
     """Set up TCL switches from config entry."""
     coordinator: TCLCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     
-    switches = [
-        TCLSwitch(coordinator, device["id"], device["name"])
-        for device in coordinator.devices
-        if device.get("category") == "AC"  # Match the API response field name
-    ]
+    switches = []
+    for device in coordinator.devices:
+        if device.get("category") == "AC":
+            try:
+                switches.append(TCLSwitch(
+                    coordinator,
+                    device["deviceId"],
+                    device.get("nickName", device.get("deviceName", "TCL AC"))
+                )
+            except KeyError as err:
+                _LOGGER.warning(
+                    "Skipping device due to missing field %s: %s",
+                    err,
+                    device
+                )
     
     async_add_entities(switches)
 
@@ -35,7 +45,12 @@ class TCLSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_device_class = SwitchDeviceClass.SWITCH
 
-    def __init__(self, coordinator: TCLCoordinator, device_id: str, name: str) -> None:
+    def __init__(
+        self,
+        coordinator: TCLCoordinator,
+        device_id: str,
+        name: str,
+    ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator)
         self._device_id = device_id
