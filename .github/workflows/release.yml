@@ -7,18 +7,23 @@ on:
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v3
       
+      - name: Create ZIP package
+        run: |
+          mkdir -p package/custom_components/tcl
+          cp -r custom_components/tcl/* package/custom_components/tcl/
+          cp manifest.json .hacs.json package/
+          cd package && zip -r ../tcl.zip *
+          
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.ref }}
           name: Release ${{ github.ref_name }}
-          body: Automated release for HACS compatibility
-          prerelease: false
-          draft: false
-          generate_release_notes: true
+          body: Automated HACS-compatible release
           files: |
-            custom_components/tcl/*
-            manifest.json
-            .hacs.json
+            tcl.zip
