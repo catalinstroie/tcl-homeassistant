@@ -139,7 +139,9 @@ class TCLAPI:
                 "sign": sign,
                 "user-agent": "Android",
                 "content-type": "application/json; charset=UTF-8",
-                "accept-encoding": "gzip, deflate, br"
+                "accept-encoding": "gzip, deflate, br",
+                "x-amz-security-token": self._aws_credentials["SessionToken"],
+                "x-amz-date": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
             }
 
             _LOGGER.debug("Making request to devices endpoint with full headers: %s", headers)
