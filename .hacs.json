@@ -3,9 +3,8 @@
   "render_readme": true,
   "domains": ["tcl"],
   "homeassistant": "2023.1.0",
-  "hide_default_branch": true,
   "zip_release": true,
   "filename": "tcl.zip",
-  "persistent_directory": "tcl",
-  "content_in_root": false
+  "content_in_root": true,
+  "persistent_directory": false
 }
