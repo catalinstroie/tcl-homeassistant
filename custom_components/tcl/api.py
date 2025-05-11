@@ -211,9 +211,10 @@ class TCLAPI:
             )
             
             try:
-                response = self._session.get(
+                response = self._session.post(
                     "https://prod-eu.aws.tcljd.com/v3/user/get_things",
-                    headers=headers
+                    headers=headers,
+                    json={}
                 )
                 _LOGGER.debug("Raw response headers: %s", dict(response.headers))
                 _LOGGER.debug("Response status: %s, headers: %s",
@@ -236,9 +237,10 @@ class TCLAPI:
                 if err.response.status_code == 403:
                     _LOGGER.debug("Attempting fallback authentication method")
                     headers["timestamp"] = str(int(time.time()))
-                    response = self._session.get(
+                    response = self._session.post(
                         "https://prod-eu.aws.tcljd.com/v3/user/get_things",
-                        headers=headers
+                        headers=headers,
+                        json={}
                     )
                     response.raise_for_status()
                     return response.json().get("data", [])
