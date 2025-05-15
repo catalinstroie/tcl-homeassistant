@@ -260,8 +260,11 @@ class TclApi:
                              type(response), str(response)[:500])
                 raise TclAuthenticationError("AWS credentials response is not JSON")
 
-            if "Credentials" in response:
-                creds = response["Credentials"]
+            # Handle case where response might be nested under "data"
+            response_data = response.get("data", response)
+            
+            if "Credentials" in response_data:
+                creds = response_data["Credentials"]
                 self._aws_access_key_id = creds.get("AccessKeyId")
                 self._aws_secret_key = creds.get("SecretKey")
                 self._aws_session_token = creds.get("SessionToken")
