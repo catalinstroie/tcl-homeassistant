@@ -1,6 +1,6 @@
 """Constants for the TCL Home Assistant integration."""
 
-DOMAIN = "tcl_homeassistant"
+DOMAIN = "tcl_ac"
 
 # Configuration constants
 CONF_EMAIL = "email"
@@ -28,7 +28,7 @@ PLATFORMS = ["climate"]
 
 # Logging
 INTEGRATION_VERSION = "0.1.0" # Align with manifest.json
-LOGGER_NAME = "tcl_homeassistant"
+LOGGER_NAME = "tcl_ac"
 
 # Default values
 DEFAULT_TH_PLATFORM = "android"
