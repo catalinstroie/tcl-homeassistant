@@ -1,0 +1,12 @@
+{
+  "domain": "tcl_ac",
+  "name": "TCL AC Control",
+  "documentation": "https://github.com/your_username/tcl_ac_hass_integration",
+  "issue_tracker": "https://github.com/your_username/tcl_ac_hass_integration/issues",
+  "codeowners": ["@your_username"],
+  "requirements": ["requests", "requests_aws4auth", "pyjwt"],
+  "iot_class": "cloud_polling",
+  "version": "0.1.0",
+  "config_flow": true
+}
+
