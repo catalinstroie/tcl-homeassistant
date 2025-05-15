@@ -148,6 +148,9 @@ class TclApi:
             "user-agent": USER_AGENT,
             "content-type": CONTENT_TYPE,
             "accept-encoding": "gzip, deflate, br",
+            "th_platform": TH_PLATFORM,
+            "th_version": TH_VERSION,
+            "th_appbulid": TH_APPBUILD,
         }
         payload = {
             "userId": self._user_id,
@@ -155,12 +158,19 @@ class TclApi:
             "appId": APP_ID,
         }
         _LOGGER.info(f"Refreshing tokens for {self._user_id}")
-        response_data = await self._request("POST", REFRESH_TOKENS_URL, headers=headers, data=payload)
+        try:
+            response_data = await self._request("POST", REFRESH_TOKENS_URL, headers=headers, data=payload)
+            _LOGGER.debug(f"Token refresh raw response: {response_data}")
 
-        if not response_data or response_data.get("errorcode") != "0":
-            error_msg = response_data.get("msg", "Unknown token refresh error")
-            _LOGGER.error(f"Token refresh failed: {error_msg}")
-            raise TclApiAuthError(f"Token refresh failed: {error_msg}")
+            if not response_data or response_data.get("errorcode") != "0":
+                error_msg = response_data.get("msg", "Unknown token refresh error")
+                _LOGGER.error(f"Token refresh failed. Response: {response_data}")
+                raise TclApiAuthError(f"Token refresh failed: {error_msg}")
+
+            data_payload = response_data.get("data", {})
+            if not data_payload:
+                _LOGGER.error(f"Token refresh missing data payload: {response_data}")
+                raise TclApiAuthError("Token refresh response missing data payload")
 
         data_payload = response_data.get("data", {})
         self._cognito_token = data_payload.get("cognitoToken")
