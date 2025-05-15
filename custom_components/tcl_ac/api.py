@@ -121,18 +121,17 @@ class TclApi:
         _LOGGER.info(f"Attempting account authentication for {self._email}")
         response_data = await self._request("POST", url, headers=headers, data=payload)
 
-        if not response_data or response_data.get("errorcode") != "0":
-            error_msg = response_data.get("msg", "Unknown authentication error")
-            _LOGGER.error(f"Account authentication failed: {error_msg}")
-            raise TclApiAuthError(f"Account authentication failed: {error_msg}")
+        if not response_data:
+            _LOGGER.error("Empty authentication response")
+            raise TclApiAuthError("Empty authentication response")
 
         self._sso_token = response_data.get("token")
         self._country_abbr = response_data.get("user", {}).get("countryAbbr")
         self._user_id = response_data.get("user", {}).get("username") # This should be the email
 
         if not all([self._sso_token, self._country_abbr, self._user_id]):
-            _LOGGER.error("Authentication response missing critical data.")
-            raise TclApiAuthError("Authentication response incomplete.")
+            _LOGGER.error(f"Authentication response missing critical data: {response_data}")
+            raise TclApiAuthError(f"Authentication response incomplete: {response_data}")
         
         _LOGGER.info(f"Successfully authenticated {self._email}, obtained SSO token.")
         # After initial auth, refresh tokens to get saas and cognito tokens
@@ -350,4 +349,3 @@ class TclApi:
         if self._session and not self._session.closed:
             await self._session.close()
             _LOGGER.debug("TCL API session closed.")
-
