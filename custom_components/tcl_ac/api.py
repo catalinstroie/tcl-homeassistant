@@ -252,16 +252,22 @@ class TclApi:
             }
         }
         try:
-            response = await self._request("POST", AWS_COGNITO_URL, headers, data)
+            response = await self._request("POST", AWS_COGNITO_URL, headers, data, is_json=False)
             
-            # Add response type checking and enhanced error handling
+            # Handle case where response comes as string that needs JSON parsing
+            if isinstance(response, str):
+                try:
+                    response = json.loads(response)
+                except json.JSONDecodeError as e:
+                    _LOGGER.error("Failed to parse AWS response as JSON: %s", e)
+                    raise TclAuthenticationError("Failed to parse AWS response") from e
+
             if not isinstance(response, dict):
                 _LOGGER.error("Unexpected response type from AWS Cognito: %s. Full response: %s", 
                              type(response), str(response)[:500])
-                raise TclAuthenticationError("AWS credentials response is not JSON")
+                raise TclAuthenticationError("AWS credentials response is not in expected format")
 
-            # Handle case where response might be nested under "data"
-            response_data = response.get("data", response)
+            response_data = response
             
             if "Credentials" in response_data:
                 creds = response_data["Credentials"]
