@@ -1,5 +1,5 @@
 {
-  "domain": "tcl_homeassistant",
+  "domain": "tcl_ac",
   "name": "TCL AC Integration",
   "documentation": "https://github.com/catalinstroie/tcl-homeassistant",
   "issue_tracker": "https://github.com/catalinstroie/tcl-homeassistant/issues",
