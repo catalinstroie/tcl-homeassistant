@@ -238,11 +238,10 @@ class TclApi:
         identity_id_to_use = HARDCODED_IDENTITY_ID
         _LOGGER.debug("Using IdentityId for AWS Credentials: %s", identity_id_to_use)
 
-
         headers = {
             "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
             "Content-Type": "application/x-amz-json-1.1",
-            "User-Agent": "aws-sdk-ios/2.35.0 iOS/17.4.1 en_US", # Updated user agent slightly
+            "User-Agent": "aws-sdk-ios/2.35.0 iOS/17.4.1 en_US",
             "X-Amz-Date": time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
             "Accept-Language": "en-GB,en;q=0.9",
         }
@@ -254,23 +253,42 @@ class TclApi:
         }
         try:
             response = await self._request("POST", AWS_COGNITO_URL, headers, data)
-            if response and "Credentials" in response:
+            
+            # Add response type checking and enhanced error handling
+            if not isinstance(response, dict):
+                _LOGGER.error("Unexpected response type from AWS Cognito: %s. Full response: %s", 
+                             type(response), str(response)[:500])
+                raise TclAuthenticationError("AWS credentials response is not JSON")
+
+            if "Credentials" in response:
                 creds = response["Credentials"]
                 self._aws_access_key_id = creds.get("AccessKeyId")
                 self._aws_secret_key = creds.get("SecretKey")
                 self._aws_session_token = creds.get("SessionToken")
 
                 if not all([self._aws_access_key_id, self._aws_secret_key, self._aws_session_token]):
-                    _LOGGER.error("Incomplete AWS credentials received.")
-                    raise TclAuthenticationError("Incomplete AWS credentials.")
+                    _LOGGER.error("Incomplete AWS credentials received: %s", creds)
+                    raise TclAuthenticationError("Incomplete AWS credentials")
 
-                _LOGGER.info("AWS credentials obtained successfully.")
+                _LOGGER.info("AWS credentials obtained successfully")
                 return True
-            _LOGGER.error("Failed to get AWS credentials. Response: %s", response)
-            raise TclAuthenticationError(f"AWS credential retrieval failed: {response}")
+            
+            # Handle AWS error responses
+            if "__type" in response:
+                error_type = response["__type"]
+                error_message = response.get("message", "No error message provided")
+                _LOGGER.error("AWS Cognito error: %s - %s", error_type, error_message)
+                raise TclAuthenticationError(f"AWS Cognito error: {error_type} - {error_message}")
+            
+            _LOGGER.error("Unexpected AWS response format: %s", response)
+            raise TclAuthenticationError("Unexpected AWS response format")
+            
         except TclApiError as e:
             _LOGGER.error("API error during AWS credential retrieval: %s", e)
             raise TclAuthenticationError(f"API error during AWS credential retrieval: {e}") from e
+        except Exception as e:
+            _LOGGER.error("Unexpected error getting AWS credentials: %s", e)
+            raise TclAuthenticationError(f"Unexpected error: {e}") from e
 
     async def get_devices(self) -> list | None:
         """Fetch list of devices."""
@@ -432,4 +450,3 @@ class TclApi:
                 "SessionToken": self._aws_session_token,
             }
         return None
-
