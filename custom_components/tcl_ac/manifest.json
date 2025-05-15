@@ -6,6 +6,6 @@
   "codeowners": ["@catalinstroie"],
   "requirements": ["requests", "requests_aws4auth", "pyjwt"],
   "iot_class": "cloud_polling",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "config_flow": true
 }
