@@ -167,12 +167,12 @@ class TclApi:
                 _LOGGER.error(f"Token refresh failed. Response: {response_data}")
                 raise TclApiAuthError(f"Token refresh failed: {error_msg}")
 
+    
             data_payload = response_data.get("data", {})
             if not data_payload:
                 _LOGGER.error(f"Token refresh missing data payload: {response_data}")
                 raise TclApiAuthError("Token refresh response missing data payload")
 
-        data_payload = response_data.get("data", {})
         self._cognito_token = data_payload.get("cognitoToken")
         self._saas_token = data_payload.get("saasToken")
 
