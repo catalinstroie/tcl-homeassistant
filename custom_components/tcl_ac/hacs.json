@@ -1,0 +1,7 @@
+{
+  "name": "TCL AC Integration",
+  "domains": ["climate"],
+  "homeassistant": "2024.5.0",
+  "iot_class": "cloud_polling",
+  "render_readme": true
+}
