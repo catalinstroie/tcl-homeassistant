@@ -1,11 +1,11 @@
 {
-  "name": "TCL IoT Integration",
+  "name": "TCL AC Control",
   "render_readme": true,
-  "domains": ["tcl"],
+  "domains": ["climate"],
   "homeassistant": "2023.8.0",
   "hide_default_branch": true,
-  "version": "1.0.14",
+  "version": "0.1.1",
   "zip_release": true,
-  "filename": "tcl.zip",
+  "filename": "tcl_ac.zip",
   "content_in_root": false
 }
