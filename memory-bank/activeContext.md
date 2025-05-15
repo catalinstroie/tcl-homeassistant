@@ -1,9 +1,9 @@
 # Active Context
 
 ## Current Work Focus
-- Establishing the Memory Bank for the TCL Home Assistant HACS integration project.
-- Documenting project requirements, context, architecture, technology stack, and patterns.
-- Preparing for the initial implementation of the HACS integration based on the reference script and logs.
+- Updating Memory Bank documentation to reflect current state.
+- Preparing release v1.1.12 of the integration.
+- Reviewing all files for consistency and accuracy.
 
 ## Recent Changes
 - Created and populated all core Memory Bank files:

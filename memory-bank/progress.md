@@ -8,6 +8,8 @@
   - Comprehensive logging of all API interactions
 - The integration follows Home Assistant best practices
 - All core functionality from the reference script has been implemented
+- Fixed unterminated f-string in API logging
+- Updated to version 1.1.12
 
 ## What's Left to Build
 - Implement additional climate features (temperature control, modes, fan speed)

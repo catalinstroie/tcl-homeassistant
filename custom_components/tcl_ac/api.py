@@ -1,18 +1,15 @@
-"""API client for interacting with TCL Home servers."""
+"""API for TCL Cloud."""
 import asyncio
-import base64
 import hashlib
 import json
 import logging
 import os
 import time
 import datetime
-import jwt # PyJWT
 
 import aiohttp
-from requests_aws4auth import AWS4Auth # This is synchronous, will need to adapt or find async alternative for AWS signing if used directly in async methods.
-                                     # For now, the control_device part might need careful handling or a synchronous executor.
-                                     # However, the original script uses requests.post with auth=AWS4Auth. aiohttp might need manual header construction.
+from requests_aws4auth import AWS4Auth # Still used for signing, requests.post will be replaced
+import jwt # For decoding JWT
 
 from .const import (
     ACCOUNT_LOGIN_URL,
@@ -22,314 +19,417 @@ from .const import (
     AWS_IOT_REGION,
     CLIENT_ID,
     CONTENT_TYPE,
+    DEFAULT_TH_APPBUILD,
+    DEFAULT_TH_PLATFORM,
+    DEFAULT_TH_VERSION,
     GET_THINGS_URL,
     HARDCODED_IDENTITY_ID,
     REFRESH_TOKENS_URL,
-    TH_APPBUILD,
-    TH_PLATFORM,
-    TH_VERSION,
     USER_AGENT,
+    LOGGER_NAME,
 )
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
+
+
+class TclAuthenticationError(Exception):
+    """Exception to indicate an authentication error."""
 
 class TclApiError(Exception):
-    """Generic TCL API error."""
+    """Exception to indicate a general API error."""
 
-class TclApiAuthError(TclApiError):
-    """TCL API authentication error."""
-
-def calculate_md5_hash_bytes(input_string):
-    """Calculates MD5 hash for a string."""
-    md5_hash = hashlib.md5()
-    md5_hash.update(input_string.encode("utf-8"))
-    return md5_hash.hexdigest()
 
 class TclApi:
-    """TCL API Client."""
+    """Class to manage the TCL API calls."""
 
-    def __init__(self, email, password, loop, session: aiohttp.ClientSession = None):
-        """Initialize the API client."""
+    def __init__(self, session: aiohttp.ClientSession, email: str, password: str):
+        """Initialize the API."""
+        self._session = session
         self._email = email
         self._password_hash = hashlib.md5(password.encode()).hexdigest()
-        self._loop = loop
-        self._session = session if session else aiohttp.ClientSession()
         self._sso_token = None
         self._saas_token = None
         self._cognito_token = None
-        self._aws_credentials = None
+        self._cognito_id = None
+        self._aws_access_key_id = None
+        self._aws_secret_key = None
+        self._aws_session_token = None
         self._country_abbr = None
-        self._user_id = None # This is the email/username
+        self._username_id = None # This is the numeric username like "208679190"
 
-    async def _request(self, method, url, headers=None, data=None, auth=None, is_json=True):
-        """Make an asynchronous HTTP request with logging."""
-        _LOGGER.debug(
-            f"Request: {method} {url}\nHeaders: {json.dumps(headers, indent=2)}\nBody: {json.dumps(data, indent=2) if data else '{}'}"
-        )
+    def _calculate_md5_hash_bytes(self, input_string: str) -> str:
+        """Calculate MD5 hash."""
+        md5_hash = hashlib.md5()
+        md5_hash.update(input_string.encode('utf-8'))
+        return md5_hash.hexdigest()
+
+    async def _request(self, method: str, url: str, headers: dict, data: dict = None, auth=None, is_json=True):
+        """Make an asynchronous HTTP request."""
+        _LOGGER.debug("Request URL: %s", url)
+        _LOGGER.debug("Request Headers: %s", headers)
+        _LOGGER.debug("Request Data: %s", data)
+
         try:
-            async with self._session.request(
-                method,
-                url,
-                headers=headers,
-                json=data if is_json and data else None,
-                data=data if not is_json and data else None,
-                auth=auth # aiohttp uses aiohttp.BasicAuth or custom auth helpers
-            ) as response:
-                response_text = await response.text()
-                _LOGGER.debug(
-                    f"Response: {response.status}\nHeaders: {json.dumps(dict(response.headers), indent=2)}\nBody: {response_text[:1000]}"
-                )
-                response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
-                try:
-                    return await response.json()
-                except aiohttp.ContentTypeError: # Handle non-JSON responses if necessary
-                    _LOGGER.debug("Response was not JSON, returning raw text.")
-                    return response_text
-        except aiohttp.ClientResponseError as err:
-            _LOGGER.error(f"API request failed [{err.status}]: {err.message} for {url}")
-            if err.status == 401 or err.status == 403:
-                raise TclApiAuthError(f"Authentication failed: {err.message}") from err
-            raise TclApiError(f"API request error: {err.message}") from err
-        except aiohttp.ClientError as err:
-            _LOGGER.error(f"API request failed: {err} for {url}")
-            raise TclApiError(f"API request error: {err}") from err
-        except asyncio.TimeoutError as err:
-            _LOGGER.error(f"API request timed out: {err} for {url}")
-            raise TclApiError(f"API request timeout: {err}") from err
+            if method.upper() == "POST":
+                if is_json:
+                    async with self._session.post(url, headers=headers, json=data, auth=auth) as response:
+                        _LOGGER.debug("Response Status: %s", response.status)
+                        _LOGGER.debug("Response Headers: %s", response.headers)
+                        if response.status >= 400:
+                            text_content = await response.text()
+                            _LOGGER.error("API Error %s: %s", response.status, text_content)
+                            response.raise_for_status() # Will raise ClientResponseError
+                        try:
+                            resp_json = await response.json()
+                            _LOGGER.debug("Response JSON: %s", json.dumps(resp_json, indent=2))
+                            return resp_json
+                        except aiohttp.ContentTypeError:
+                            text_content = await response.text()
+                            _LOGGER.debug("Response Text (not JSON): %s", text_content[:500])
+                            return text_content # Or handle as error if JSON was expected
+                else: # For x-www-form-urlencoded or other non-json posts if needed
+                    async with self._session.post(url, headers=headers, data=data, auth=auth) as response:
+                        _LOGGER.debug("Response Status: %s", response.status)
+                        _LOGGER.debug("Response Headers: %s", response.headers)
+                        if response.status >= 400:
+                            text_content = await response.text()
+                            _LOGGER.error("API Error %s: %s", response.status, text_content)
+                            response.raise_for_status()
+                        # Similar JSON/text handling as above
+                        try:
+                            resp_json = await response.json()
+                            _LOGGER.debug("Response JSON: %s", json.dumps(resp_json, indent=2))
+                            return resp_json
+                        except aiohttp.ContentTypeError:
+                            text_content = await response.text()
+                            _LOGGER.debug("Response Text (not JSON): %s", text_content[:500])
+                            return text_content
+            elif method.upper() == "GET":
+                async with self._session.get(url, headers=headers, auth=auth) as response:
+                    _LOGGER.debug("Response Status: %s", response.status)
+                    _LOGGER.debug("Response Headers: %s", response.headers)
+                    if response.status >= 400:
+                        text_content = await response.text()
+                        _LOGGER.error("API Error %s: %s", response.status, text_content)
+                        response.raise_for_status()
+                    try:
+                        resp_json = await response.json()
+                        _LOGGER.debug("Response JSON: %s", json.dumps(resp_json, indent=2))
+                        return resp_json
+                    except aiohttp.ContentTypeError:
+                        text_content = await response.text()
+                        _LOGGER.debug("Response Text (not JSON): %s", text_content[:500])
+                        return text_content
+            else:
+                _LOGGER.error("Unsupported HTTP method: %s", method)
+                raise TclApiError(f"Unsupported HTTP method: {method}")
 
-    async def async_do_account_auth(self):
-        """Authenticate with TCL account servers."""
+        except aiohttp.ClientError as e:
+            _LOGGER.error("Network or HTTP error during API request to %s: %s", url, e)
+            raise TclApiError(f"Request to {url} failed: {e}") from e
+        except json.JSONDecodeError as e:
+            _LOGGER.error("Failed to decode JSON response from %s: %s", url, e)
+            raise TclApiError(f"Invalid JSON response from {url}: {e}") from e
+
+
+    async def authenticate(self) -> bool:
+        """Authenticate with TCL servers and fetch initial tokens."""
+        _LOGGER.info("Attempting authentication for user: %s", self._email)
+        if not await self._do_account_auth():
+            return False
+        if not await self._refresh_tokens():
+            return False
+        if not await self._get_aws_credentials():
+            return False
+        _LOGGER.info("Authentication successful.")
+        return True
+
+    async def _do_account_auth(self) -> bool:
+        """Perform initial account login."""
         url = ACCOUNT_LOGIN_URL.format(CLIENT_ID)
         headers = {
-            "th_platform": TH_PLATFORM,
-            "th_version": TH_VERSION,
-            "th_appbulid": TH_APPBUILD, # Note: original script has 'th_appbulid', might be a typo for 'th_appbuild'
+            "th_platform": DEFAULT_TH_PLATFORM,
+            "th_version": DEFAULT_TH_VERSION,
+            "th_appbulid": DEFAULT_TH_APPBUILD, # Note: Typo in original script 'th_appbulid' vs 'th_appbuild'
             "user-agent": USER_AGENT,
             "content-type": CONTENT_TYPE,
         }
-        payload = {
+        data = {
             "equipment": 2,
             "password": self._password_hash,
             "osType": 1,
-            "username": self._email,
-            "clientVersion": "4.8.1", # Should this be TH_VERSION?
-            "osVersion": "6.0",
-            "deviceModel": "Android SDK built for x86", # Consider making this configurable or more generic
+            "username": self._email, # Uses email for this initial login
+            "clientVersion": DEFAULT_TH_VERSION, # "4.8.1"
+            "osVersion": "6.0", # Example, may not be critical
+            "deviceModel": "HomeAssistantIntegration", # "AndroidAndroid SDK built for x86"
             "captchaRule": 2,
             "channel": "app",
         }
-        _LOGGER.info(f"Attempting account authentication for {self._email}")
-        response_data = await self._request("POST", url, headers=headers, data=payload)
+        try:
+            response = await self._request("POST", url, headers, data)
+            if response and response.get("status") == 1 and "token" in response:
+                self._sso_token = response["token"]
+                self._country_abbr = response.get("user", {}).get("countryAbbr")
+                self._username_id = response.get("user", {}).get("username") # This is the numeric ID
+                _LOGGER.info("Account auth successful. SSO Token obtained. Username ID: %s", self._username_id)
+                return True
+            _LOGGER.error("Account auth failed. Response: %s", response)
+            raise TclAuthenticationError(f"Account authentication failed: {response.get('msg', 'Unknown error')}")
+        except TclApiError as e:
+            _LOGGER.error("API error during account auth: %s", e)
+            raise TclAuthenticationError(f"API error during account auth: {e}") from e
 
-        if not response_data or response_data.get("errorcode") != "0":
-            error_msg = response_data.get("msg", "Unknown authentication error")
-            _LOGGER.error(f"Account authentication failed: {error_msg}")
-            raise TclApiAuthError(f"Account authentication failed: {error_msg}")
-
-        self._sso_token = response_data.get("token")
-        self._country_abbr = response_data.get("user", {}).get("countryAbbr")
-        self._user_id = response_data.get("user", {}).get("username") # This should be the email
-
-        if not all([self._sso_token, self._country_abbr, self._user_id]):
-            _LOGGER.error("Authentication response missing critical data.")
-            raise TclApiAuthError("Authentication response incomplete.")
-        
-        _LOGGER.info(f"Successfully authenticated {self._email}, obtained SSO token.")
-        # After initial auth, refresh tokens to get saas and cognito tokens
-        await self.async_refresh_tokens()
-        return True
-
-    async def async_refresh_tokens(self):
-        """Refresh SSO token to get SaaS and Cognito tokens."""
-        if not self._sso_token or not self._user_id:
-            _LOGGER.error("Cannot refresh tokens without SSO token and user ID.")
-            raise TclApiAuthError("SSO token or User ID not available for token refresh.")
+    async def _refresh_tokens(self) -> bool:
+        """Refresh SaaS and Cognito tokens."""
+        if not self._sso_token or not self._username_id:
+            _LOGGER.error("Cannot refresh tokens without SSO token and Username ID.")
+            return False
 
         headers = {
             "user-agent": USER_AGENT,
             "content-type": CONTENT_TYPE,
-            "accept-encoding": "gzip, deflate, br",
+            "accept-encoding": "gzip, deflate, br", # aiohttp handles this automatically
         }
-        payload = {
-            "userId": self._user_id,
+        data = {
+            "userId": self._username_id, # Use the numeric username ID
             "ssoToken": self._sso_token,
             "appId": APP_ID,
         }
-        _LOGGER.info(f"Refreshing tokens for {self._user_id}")
-        response_data = await self._request("POST", REFRESH_TOKENS_URL, headers=headers, data=payload)
-
-        if not response_data or response_data.get("errorcode") != "0":
-            error_msg = response_data.get("msg", "Unknown token refresh error")
-            _LOGGER.error(f"Token refresh failed: {error_msg}")
-            raise TclApiAuthError(f"Token refresh failed: {error_msg}")
-
-        data_payload = response_data.get("data", {})
-        self._cognito_token = data_payload.get("cognitoToken")
-        self._saas_token = data_payload.get("saasToken")
-
-        if not self._cognito_token or not self._saas_token:
-            _LOGGER.error("Token refresh response missing cognito or saas token.")
-            raise TclApiAuthError("Token refresh response incomplete.")
-
-        # Validate Cognito token expiry (optional but good practice)
         try:
-            decoded_cognito = jwt.decode(self._cognito_token, options={"verify_signature": False})
-            expiry_time = datetime.datetime.fromtimestamp(decoded_cognito["exp"], tz=datetime.timezone.utc)
-            if datetime.datetime.now(tz=datetime.timezone.utc) > expiry_time:
-                _LOGGER.error("Cognito token obtained from refresh is already expired.")
-                raise TclApiAuthError("Refreshed Cognito token is expired.")
-        except jwt.ExpiredSignatureError:
-            _LOGGER.error("Cognito token is expired (caught by PyJWT).")
-            raise TclApiAuthError("Refreshed Cognito token is expired.")
-        except jwt.InvalidTokenError as e:
-            _LOGGER.error(f"Invalid Cognito token: {e}")
-            raise TclApiAuthError(f"Invalid Cognito token: {e}")
+            response = await self._request("POST", REFRESH_TOKENS_URL, headers, data)
+            if response and response.get("code") == 0 and "data" in response:
+                token_data = response["data"]
+                self._saas_token = token_data.get("saasToken")
+                self._cognito_token = token_data.get("cognitoToken")
+                self._cognito_id = token_data.get("cognitoId") # This might be the same as HARDCODED_IDENTITY_ID
 
-        _LOGGER.info("Successfully refreshed tokens, obtained Cognito and SaaS tokens.")
-        # After refreshing tokens, get AWS credentials
-        await self.async_get_aws_credentials()
-        return True
+                if not self._saas_token or not self._cognito_token:
+                    _LOGGER.error("Failed to retrieve SaaS or Cognito token from refresh response.")
+                    raise TclAuthenticationError("Missing SaaS or Cognito token in refresh response.")
 
-    async def async_get_aws_credentials(self):
-        """Get AWS credentials using Cognito token."""
+                # Validate Cognito token expiry (optional but good practice)
+                try:
+                    decoded_cognito = jwt.decode(self._cognito_token, options={"verify_signature": False})
+                    expiry_time = datetime.datetime.fromtimestamp(decoded_cognito["exp"], tz=datetime.timezone.utc)
+                    if datetime.datetime.now(tz=datetime.timezone.utc) > expiry_time:
+                        _LOGGER.error("Cognito token obtained is already expired.")
+                        raise TclAuthenticationError("Fetched Cognito token is expired.")
+                except jwt.PyJWTError as e:
+                    _LOGGER.warning("Could not decode Cognito token to check expiry: %s", e)
+
+
+                _LOGGER.info("Tokens refreshed successfully. SaaS and Cognito tokens obtained.")
+                return True
+            _LOGGER.error("Token refresh failed. Response: %s", response)
+            raise TclAuthenticationError(f"Token refresh failed: {response.get('message', 'Unknown error')}")
+        except TclApiError as e:
+            _LOGGER.error("API error during token refresh: %s", e)
+            raise TclAuthenticationError(f"API error during token refresh: {e}") from e
+
+    async def _get_aws_credentials(self) -> bool:
+        """Get AWS temporary credentials using Cognito token."""
         if not self._cognito_token:
             _LOGGER.error("Cannot get AWS credentials without Cognito token.")
-            raise TclApiAuthError("Cognito token not available for AWS credential retrieval.")
+            return False
+
+        # The HARDCODED_IDENTITY_ID seems to be crucial.
+        # The cognitoId from refresh_tokens might be the same or related.
+        # Using the one from the script for now.
+        identity_id_to_use = HARDCODED_IDENTITY_ID
+        _LOGGER.debug("Using IdentityId for AWS Credentials: %s", identity_id_to_use)
+
 
         headers = {
             "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
             "Content-Type": "application/x-amz-json-1.1",
-            "User-Agent": "aws-sdk-iOS/2.26.2 iOS/18.4.1 en_RO", # Consider if this needs to be dynamic
+            "User-Agent": "aws-sdk-ios/2.35.0 iOS/17.4.1 en_US", # Updated user agent slightly
             "X-Amz-Date": time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
             "Accept-Language": "en-GB,en;q=0.9",
         }
-        payload = {
-            "IdentityId": HARDCODED_IDENTITY_ID, # This is hardcoded in the original script
+        data = {
+            "IdentityId": identity_id_to_use,
             "Logins": {
                 "cognito-identity.amazonaws.com": self._cognito_token
             }
         }
-        _LOGGER.info("Fetching AWS credentials.")
-        response_data = await self._request("POST", AWS_COGNITO_URL, headers=headers, data=payload)
+        try:
+            response = await self._request("POST", AWS_COGNITO_URL, headers, data)
+            if response and "Credentials" in response:
+                creds = response["Credentials"]
+                self._aws_access_key_id = creds.get("AccessKeyId")
+                self._aws_secret_key = creds.get("SecretKey")
+                self._aws_session_token = creds.get("SessionToken")
 
-        # AWS Cognito API might not have 'errorcode' field like TCL's own APIs.
-        # It usually returns HTTP status codes for errors.
-        # The _request method already handles HTTP errors.
-        # We need to check the structure of a successful response.
-        if not response_data or "Credentials" not in response_data:
-            _LOGGER.error(f"Failed to get AWS credentials. Response: {response_data}")
-            raise TclApiError("Failed to retrieve AWS credentials.")
+                if not all([self._aws_access_key_id, self._aws_secret_key, self._aws_session_token]):
+                    _LOGGER.error("Incomplete AWS credentials received.")
+                    raise TclAuthenticationError("Incomplete AWS credentials.")
 
-        self._aws_credentials = response_data["Credentials"]
-        if not all (k in self._aws_credentials for k in ["AccessKeyId", "SecretKey", "SessionToken"]):
-            _LOGGER.error(f"AWS credentials response missing critical keys: {self._aws_credentials}")
-            raise TclApiError("Incomplete AWS credentials received.")
+                _LOGGER.info("AWS credentials obtained successfully.")
+                return True
+            _LOGGER.error("Failed to get AWS credentials. Response: %s", response)
+            raise TclAuthenticationError(f"AWS credential retrieval failed: {response}")
+        except TclApiError as e:
+            _LOGGER.error("API error during AWS credential retrieval: %s", e)
+            raise TclAuthenticationError(f"API error during AWS credential retrieval: {e}") from e
 
-        _LOGGER.info("Successfully obtained AWS credentials.")
-        return self._aws_credentials
-
-    async def async_get_devices(self):
-        """Get list of devices (Things)."""
+    async def get_devices(self) -> list | None:
+        """Fetch list of devices."""
         if not self._saas_token or not self._country_abbr:
-            _LOGGER.error("SaaS token or country code not available for fetching devices.")
-            # Attempt to re-authenticate if tokens are missing
-            _LOGGER.info("Attempting re-authentication to fetch devices.")
-            await self.async_do_account_auth()
-            if not self._saas_token or not self._country_abbr:
-                 raise TclApiAuthError("SaaS token or country code still not available after re-auth.")
+            _LOGGER.error("Cannot get devices without SaaS token or country code.")
+            return None
 
         timestamp = str(int(time.time() * 1000))
         nonce = os.urandom(16).hex()
-        # The signature is MD5(timestamp + nonce + saas_token)
-        sign_str = timestamp + nonce + self._saas_token
-        sign = calculate_md5_hash_bytes(sign_str)
+        # Ensure self._saas_token is not None before using it in sign calculation
+        sign = self._calculate_md5_hash_bytes(timestamp + nonce + self._saas_token)
 
         headers = {
-            "platform": TH_PLATFORM,
-            "appversion": "5.4.1", # This was different in original script's get_devices vs auth
-            "thomeversion": TH_VERSION,
+            "platform": DEFAULT_TH_PLATFORM,
+            "appversion": "5.4.1", # From script log
+            "thomeversion": DEFAULT_TH_VERSION,
             "accesstoken": self._saas_token,
             "countrycode": self._country_abbr,
-            "accept-language": "en", # Consider making this configurable
+            "accept-language": "en",
             "timestamp": timestamp,
             "nonce": nonce,
             "sign": sign,
             "user-agent": USER_AGENT,
             "content-type": CONTENT_TYPE,
-            "accept-encoding": "gzip, deflate, br",
         }
-        _LOGGER.info("Fetching devices.")
-        response_data = await self._request("POST", GET_THINGS_URL, headers=headers, data={}) # Empty JSON body for POST
+        try:
+            response = await self._request("POST", GET_THINGS_URL, headers, {})
+            if response and response.get("code") == 0 and "data" in response:
+                _LOGGER.info("Successfully fetched %s devices.", len(response["data"]))
+                return response["data"]
+            _LOGGER.error("Failed to get devices. Response: %s", response)
+            raise TclApiError(f"Failed to get devices: {response.get('message', 'Unknown error')}")
+        except TclApiError as e:
+            _LOGGER.error("API error while fetching devices: %s", e)
+            raise # Re-raise to be caught by config_flow
 
-        if not response_data or response_data.get("errorcode") != "0":
-            error_msg = response_data.get("msg", "Unknown error fetching devices")
-            _LOGGER.error(f"Failed to get devices: {error_msg}")
-            raise TclApiError(f"Failed to get devices: {error_msg}")
-
-        devices = response_data.get("data", [])
-        _LOGGER.info(f"Successfully fetched {len(devices)} devices.")
-        return devices
-
-    async def async_control_device(self, device_id, command):
-        """Control a device via AWS IoT."""
-        if not self._aws_credentials:
+    async def control_device(self, device_id: str, command: dict) -> dict | None:
+        """Send a control command to a device."""
+        if not all([self._aws_access_key_id, self._aws_secret_key, self._aws_session_token]):
             _LOGGER.error("AWS credentials not available for device control.")
-            # Attempt to re-authenticate if AWS creds are missing
-            _LOGGER.info("Attempting re-authentication to control device.")
-            await self.async_do_account_auth()
-            if not self._aws_credentials:
-                raise TclApiAuthError("AWS credentials still not available after re-auth.")
+            raise TclApiError("AWS credentials not available for device control.")
 
         url = f"https://{AWS_IOT_ENDPOINT}/topics/%24aws/things/{device_id}/shadow/update?qos=0"
         
-        # AWS4Auth is synchronous. For aiohttp, we need to manually create the signature
-        # or run the signing part in an executor. This is complex.
-        # A simpler, though less ideal, approach for now might be to use `requests` in an executor for this specific call.
-        # Or, find an async AWS signing library compatible with aiohttp.
-        # For now, let's try to construct headers manually, but this is non-trivial for AWS SigV4.
-        # The `requests_aws4auth` library does a lot under the hood.
-
-        # Placeholder for actual AWS SigV4 signing with aiohttp
-        # This part will require significant work to implement AWS SigV4 signing asynchronously
-        # or use a thread pool executor for the synchronous `requests` call.
-        # For a first pass, we might have to accept a blocking call here if an async alternative isn't readily available.
-
-        # Let's try to use requests with AWS4Auth in a thread pool executor
-        # This is a common pattern when mixing async with blocking libraries.
+        # AWS4Auth needs a synchronous requests.Request object to sign,
+        # but we are using aiohttp for the actual request.
+        # We can prepare a dummy request for signing purposes.
+        # This is a bit of a workaround as requests_aws4auth is synchronous.
+        # A fully async AWS SigV4 library would be ideal.
         
+        # Create the body first
         payload = {
             "state": {"desired": command},
-            "clientToken": f"mobile_{int(time.time() * 1000)}"
+            "clientToken": f"homeassistant_{int(time.time() * 1000)}"
         }
+        payload_bytes = json.dumps(payload).encode('utf-8')
 
-        # Synchronous part to be run in executor
-        def _blocking_control_request():
-            sync_session = __import__("requests").Session()
-            auth = AWS4Auth(
-                self._aws_credentials["AccessKeyId"],
-                self._aws_credentials["SecretKey"],
-                AWS_IOT_REGION,
-                'iotdata',
-                session_token=self._aws_credentials["SessionToken"]
-            )
-            headers = {
-                # Content-Type is set by requests based on json=payload
-                # X-Amz-Security-Token is added by AWS4Auth if session_token is provided
-                # X-Amz-Date is added by AWS4Auth
-                "User-Agent": "aws-sdk-iOS/2.26.2 iOS/18.4.1 en_RO", # From original script
-            }
-            _LOGGER.debug(
-                f"SYNC Request (via executor): POST {url}\nHeaders: {json.dumps(headers, indent=2)} (Note: Auth headers added by AWS4Auth)\nBody: {json.dumps(payload, indent=2)}"
-            )
-            response = sync_session.post(url, headers=headers, json=payload, auth=auth)
-            _LOGGER.debug(
-                f"SYNC Response (via executor): {response.status_code}\nHeaders: {json.dumps(dict(response.headers), indent=2)}\nBody: {response.text[:1000]}"
-            )
-            response.raise_for_status()
-            return response.json()
+        # Headers for the actual aiohttp request
+        # The AWS4Auth object will add the 'Authorization' and 'X-Amz-Date' (if not present),
+        # and 'X-Amz-Security-Token' headers.
+        # We need to ensure Content-Type is set for the signing process if it affects the signature.
+        
+        # requests_aws4auth modifies the headers dict in place.
+        # For aiohttp, we need to pass the auth object directly.
+        # The AWS4Auth class itself can be used as an auth object with requests.
+        # For aiohttp, we need to manually sign or find an async equivalent.
+        # Let's try to use requests_aws4auth to generate the signature and headers,
+        # then apply them to an aiohttp request. This is complex.
 
+        # Alternative: Use a synchronous requests.post within an executor if fully async signing is too hard.
+        # For now, let's try to adapt.
+        # requests_aws4auth is fundamentally synchronous.
+        # The simplest way for now is to run the signed request in an executor.
+        
+        _LOGGER.debug("Device control URL: %s", url)
+        _LOGGER.debug("Device control command: %s", command)
+
+        auth = AWS4Auth(
+            self._aws_access_key_id,
+            self._aws_secret_key,
+            AWS_IOT_REGION,
+            'iotdata', # Service name for IoT Data Plane
+            session_token=self._aws_session_token
+        )
+
+        # Headers that AWS4Auth will expect and potentially use for signing
+        # The actual 'Authorization' header will be generated by AWS4Auth
+        # The 'host' header is also critical for SigV4 and is derived from the URL.
+        # 'X-Amz-Date' is also added by AWS4Auth.
+        # 'X-Amz-Security-Token' is added if session_token is provided.
+        
+        # We need to run the synchronous `requests.post` call in a thread pool executor
+        # as it's a blocking I/O operation.
+        loop = asyncio.get_event_loop()
         try:
-            _LOGGER.info(f"Sending command to device {device_id}: {command}")
-            response_data = await self._loop.run_in_executor(None, _blocking_control_request)
-            _LOGGER.info(f"Device
-(Content truncated due to size limit. Use line ranges to read in chunks)
+            # Prepare headers that AWS4Auth might need for signing,
+            # but the auth object itself will add the necessary Authorization header.
+            # The `requests` library handles the Host header automatically.
+            # For `aiohttp` with manual signing, you'd add it.
+            
+            # This specific call is blocking, so it needs to be run in an executor
+            import requests # Synchronous requests library
+            
+            # Headers specifically for the requests library call
+            # Content-Type is important for the payload.
+            req_headers = {
+                "Content-Type": "application/json; charset=utf-8", # Ensure this is what the endpoint expects
+                # User-Agent can be added if desired
+            }
+
+            response = await loop.run_in_executor(
+                None,  # Uses the default ThreadPoolExecutor
+                requests.post,
+                url,
+                headers=req_headers, # AWS4Auth will add/modify headers like Authorization, X-Amz-Date, X-Amz-Security-Token
+                data=payload_bytes, # Send as bytes
+                auth=auth
+            )
+
+            _LOGGER.debug("Device control response status: %s", response.status_code)
+            _LOGGER.debug("Device control response headers: %s", response.headers)
+            
+            response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+            
+            resp_json = response.json()
+            _LOGGER.debug("Device control response JSON: %s", json.dumps(resp_json, indent=2))
+            return resp_json
+
+        except requests.exceptions.RequestException as e:
+            _LOGGER.error("Error controlling device %s: %s", device_id, e)
+            # Attempt to get more details from the response if available
+            if hasattr(e, 'response') and e.response is not None:
+                _LOGGER.error("Error response content: %s", e.response.text)
+                raise TclApiError(f"Failed to control device {device_id}: {e.response.status_code} - {e.response.text}") from e
+            raise TclApiError(f"Failed to control device {device_id}: {e}") from e
+        except json.JSONDecodeError as e:
+            _LOGGER.error("Failed to decode JSON response from device control for %s: %s", device_id, e)
+            raise TclApiError(f"Invalid JSON response from device control {device_id}: {e}") from e
+
+    # --- Properties to expose tokens if needed by other parts of the integration ---
+    @property
+    def sso_token(self):
+        return self._sso_token
+
+    @property
+    def saas_token(self):
+        return self._saas_token
+
+    @property
+    def cognito_token(self):
+        return self._cognito_token
+    
+    @property
+    def aws_credentials(self):
+        if self._aws_access_key_id and self._aws_secret_key and self._aws_session_token:
+            return {
+                "AccessKeyId": self._aws_access_key_id,
+                "SecretKey": self._aws_secret_key,
+                "SessionToken": self._aws_session_token,
+            }
+        return None
+

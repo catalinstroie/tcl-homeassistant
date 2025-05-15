@@ -1,11 +1,17 @@
 {
-  "domain": "tcl_ac",
-  "name": "TCL AC Control",
-  "documentation": "https://github.com/your_username/tcl_ac_hass_integration",
-  "issue_tracker": "https://github.com/your_username/tcl_ac_hass_integration/issues",
-  "codeowners": ["@your_username"],
-  "requirements": ["requests", "requests_aws4auth", "pyjwt"],
+  "domain": "tcl_homeassistant",
+  "name": "TCL AC Integration",
+  "documentation": "https://github.com/catalinstroie/tcl-homeassistant",
+  "issue_tracker": "https://github.com/catalinstroie/tcl-homeassistant/issues",
+  "codeowners": ["@catalinstroie"],
+  "version": "1.1.12",
+  "config_flow": true,
   "iot_class": "cloud_polling",
-  "version": "0.1.11",
-  "config_flow": true
+  "requirements": [
+    "requests",
+    "requests_aws4auth",
+    "pyjwt"
+  ],
+  "dependencies": [],
+  "after_dependencies": []
 }

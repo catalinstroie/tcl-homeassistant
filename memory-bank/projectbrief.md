@@ -22,7 +22,7 @@ Develop a Home Assistant HACS integration that allows users to control TCL air c
 - Logging should be as verbose as possible during development.
 
 ## Deliverables
-- A fully functional HACS integration package.
+- A fully functional HACS integration package (v1.1.12).
 - Documentation for installation and configuration.
 - A release pushed to the GitHub repository: https://github.com/catalinstroie/tcl-homeassistant
 
