@@ -244,13 +244,19 @@ class TclApi:
             "User-Agent": "aws-sdk-ios/2.35.0 iOS/17.4.1 en_US",
             "X-Amz-Date": time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
             "Accept-Language": "en-GB,en;q=0.9",
+            "Accept": "application/json",
+            "Host": "cognito-identity.eu-central-1.amazonaws.com"
         }
         data = {
             "IdentityId": identity_id_to_use,
             "Logins": {
                 "cognito-identity.amazonaws.com": self._cognito_token
-            }
+            },
+            "IdentityPoolId": "eu-central-1:83840aed-13f2-4c1d-8eaf-9df7f2daaee3"
         }
+        # Ensure data is properly JSON encoded with correct formatting
+        data = json.dumps(data, separators=(',', ':'))  # Compact JSON without spaces
+        _LOGGER.debug("AWS Cognito request data: %s", data)
         try:
             response = await self._request("POST", AWS_COGNITO_URL, headers, data, is_json=False)
             
